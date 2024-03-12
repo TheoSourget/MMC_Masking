@@ -33,6 +33,8 @@ data: requirements
 clean:
 	find . -type f -name "*.py[co]" -delete
 	find . -type d -name "__pycache__" -delete
+	find ./data/processed/ -type d -name images -exec rm -rv {} +
+	find ./data/processed/ -type d -name rois -exec rm -rv {} +
 
 ## Lint using flake8
 lint:
