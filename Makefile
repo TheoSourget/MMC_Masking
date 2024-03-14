@@ -27,7 +27,7 @@ requirements: test_environment
 
 ## Make Dataset
 data: requirements
-	$(PYTHON_INTERPRETER) src/data/make_dataset.py data/raw data/processed
+	$(PYTHON_INTERPRETER) src/data/make_dataset.py data/raw data/processed "$(classes)"
 
 ## Delete all compiled Python files
 clean:
@@ -35,7 +35,7 @@ clean:
 	find . -type d -name "__pycache__" -delete
 	find ./data/processed/ -type d -name images -exec rm -rv {} +
 	find ./data/processed/ -type d -name rois -exec rm -rv {} +
-
+	find ./data/processed/ -type f -name "processed_labels.csv" -delete
 ## Lint using flake8
 lint:
 	flake8 src
