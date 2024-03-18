@@ -50,6 +50,7 @@ def main(input_filepath, output_filepath,classes):
 
 
 def filter_and_process_labels(input_filepath,output_filepath,classes):
+    
     base_df = pd.read_csv(f'{input_filepath}/labels.csv',index_col=0)
     invalid_images = pd.read_csv(f'{input_filepath}/Invalid_images.csv', header=None, index_col=0)
     
@@ -80,15 +81,18 @@ def filter_and_process_labels(input_filepath,output_filepath,classes):
     invalid_images.columns = list(df_view.columns ) +["path"]
     df_no_invalid = df_view[~df_view['ImageID'].isin(invalid_images['ImageID'])]
     if classes:
-        accepted_classes = classes.split(",")
+        accepted_classes = [c.strip(' ').lower() for c in classes.split(",")]
         all_new_labels = []
+        all_onehot_labels = []
         for label_list in df_no_invalid['Labels']:
             new_labels = list(set(label_list) & set(accepted_classes))
             if len(new_labels) == 0:
                 new_labels = ['no finding']
             all_new_labels.append(new_labels)
+            all_onehot_labels.append([1 if l in new_labels else 0 for l in accepted_classes])     
         df_no_invalid['Labels'] =  all_new_labels
-    
+        df_no_invalid['Onehot'] = all_onehot_labels
+
     df_to_save = df_no_invalid.reset_index(drop=True)
     df_to_save.to_csv(f"{output_filepath}/processed_labels.csv",sep=",")
 
