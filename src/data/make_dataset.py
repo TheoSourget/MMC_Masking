@@ -16,7 +16,7 @@ from skimage.transform import resize
 from PIL import Image
 from tqdm import tqdm
 import torch
-from src.models.lung_unet import PretrainedUNet
+from src.models.lung_segmentation.model.Unet import Unet
 
 
 @click.command()
@@ -57,9 +57,13 @@ def filter_and_process_labels(input_filepath,output_filepath,classes):
     # Excluding NaNs in the labels
     df_no_nan = base_df[~base_df["Labels"].isna()]
     # Excluding labels including the 'suboptimal study' label
-    df_no_suboptimal = df_no_nan[~df_no_nan["Labels"].str.contains('suboptimal study')]
+    df_no_clear_label = df_no_nan[~df_no_nan["Labels"].str.contains('suboptimal study')]
+    df_no_clear_label = df_no_clear_label[~df_no_nan["Labels"].str.contains('normal')]
+    df_no_clear_label = df_no_clear_label[~df_no_nan["Labels"].str.contains('exclude')]
+    df_no_clear_label = df_no_clear_label[~df_no_nan["Labels"].str.contains('Unchanged')]
+
     # Keeping only the PA, AP and AP_horizontal projections
-    df_view = df_no_suboptimal[(df_no_suboptimal['Projection'] == 'PA') | (df_no_suboptimal['Projection'] == 'AP') | (df_no_suboptimal['Projection'] == 'AP_horizontal')]
+    df_view = df_no_clear_label[(df_no_clear_label['Projection'] == 'PA') | (df_no_clear_label['Projection'] == 'AP') | (df_no_clear_label['Projection'] == 'AP_horizontal')]
 
     # Stripping and lowercasing all individual labels
     stripped_lowercased_labels = []
@@ -111,40 +115,80 @@ def create_images(input_filepath,output_filepath):
             img = resize(img,(512,512))
             img = (img*255).astype(np.uint8)
             io.imsave(f"./{output_filepath}/images/{i_name}",img)
-            #shutil.copyfile(images_path[idx], f"./{output_filepath}/images/{i_name}")
+    
+def rle2mask(mask_rle: str, label=1, shape=(3520,4280)):
+    """
+    mask_rle: run-length as string formatted (start length)
+    shape: (height,width) of array to return
+    Returns numpy array, 1 - mask, 0 - background
 
+    """
+    s = mask_rle.split()
+    starts, lengths = [np.asarray(x, dtype=int) for x in (s[0:][::2], s[1:][::2])]
+    starts -= 1
+    ends = starts + lengths
+
+    img = np.zeros(shape[0] * shape[1], dtype=np.uint8)
+    for lo, hi in zip(starts, ends):
+        img[lo:hi] = label
+    return img.reshape(shape)# Needed to align to RLE direction
+
+def decode_both_lungs(row, label=1):
+
+    right = rle2mask(
+        mask_rle=row["Right Lung"],
+        label=label,
+        shape=(int(row["Height"]),int(row["Width"]))
+    )
+
+    left = rle2mask(
+        mask_rle=row["Left Lung"],
+        label=label,
+        shape=(int(row["Height"]),int(row["Width"]))
+    )
+
+    return right + left
 
 def create_rois(output_filepath):
-    device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
-    #Load lungs segmentation model
-    lung_segmentation_model = PretrainedUNet(
-        in_channels=1,
-        out_channels=2, 
-        batch_norm=True, 
-        upscale_mode="bilinear"
-    )
-    lung_segmentation_model.load_state_dict(torch.load("./models/unet-6v.pt"))
-    lung_segmentation_model.to(device)
-    lung_segmentation_model.eval()
+    # device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
+    # #Load lungs segmentation model
+    # lung_segmentation_model = Unet(1,1,light=False)
+    # lung_segmentation_model.load_state_dict(torch.load("./models/UnetBig.pt"))
+    # lung_segmentation_model.to(device)
+    # lung_segmentation_model.eval()
     
-    #Apply segmentation on files created during create_images function
-    for img_path in tqdm(glob.glob(f"./{output_filepath}/images/*")):
-        #Load image and resize to match segmentation model input
-        img = plt.imread(img_path)
-        #img = resize(img,(512,512))
-        #Transform into tensor
-        img_tensor = torch.from_numpy(img).float()
-        img_tensor = img_tensor.unsqueeze(0).unsqueeze(0)
-        img_tensor = img_tensor.to(device)
+    # #Apply segmentation on files created during create_images function
+    # for img_path in tqdm(glob.glob(f"./{output_filepath}/images/*")):
+    #     #Load image and resize to match segmentation model input
+    #     img = plt.imread(img_path)
         
-        #Apply model on image and get mask
-        outs = lung_segmentation_model(img_tensor)
-        softmax = torch.nn.functional.log_softmax(outs, dim=1)
-        seg_map = torch.argmax(softmax, dim=1).cpu()[0].numpy().astype(np.uint8)
+    #     #Transform into tensor
+    #     img_tensor = torch.from_numpy(img).float()
+    #     img_tensor = img_tensor.unsqueeze(0).unsqueeze(0)
+    #     img_tensor = img_tensor.to(device)
         
-        #Convert Tensor to image and save
-        Image.fromarray(seg_map).save(f"./{output_filepath}/rois/{img_path.split('/')[-1]}")
-    
+    #     #Apply model on image and get mask
+    #     outs = lung_segmentation_model(img_tensor)
+    #     pred = torch.sigmoid(outs) >= 0.5
+    #     seg_map = pred.cpu()[0][0].numpy().astype(np.uint8)
+        
+    #     #Convert Tensor to image and save
+    #     Image.fromarray(seg_map).save(f"./{output_filepath}/rois/{img_path.split('/')[-1]}")
+
+    masks_df = pd.read_csv(f"./{output_filepath}/Padchest.csv")
+    images_present = [img_path.split('/')[-1] for img_path in glob.glob(f"./{output_filepath}/images/*")]
+    mask_present = []
+    for idx,row in tqdm(masks_df.dropna().iterrows()):
+        if row['ImageID'] not in images_present:
+            continue
+        mask = decode_both_lungs(row)
+        mask_resize = resize(mask,(512,512))
+        mask_resize = mask_resize > 0
+        mask_img = Image.fromarray(mask_resize)
+        mask_img.save(f"./{output_filepath}/rois/{row['ImageID']}")
+        mask_present.append(row['ImageID'])
+    for imageID in (set(images_present)-set(mask_present)):
+        os.remove(f"./{output_filepath}/images/{imageID}")
 
 if __name__ == '__main__':
     log_fmt = '%(asctime)s - %(name)s - %(levelname)s - %(message)s'
