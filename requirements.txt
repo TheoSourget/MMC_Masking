@@ -68,4 +68,6 @@ typing_extensions==4.10.0
 tzdata==2024.1
 urllib3==2.2.1
 wheel==0.42.0
+opencv-python==4.9.0.80
+torcheval==0.0.7
 -e .

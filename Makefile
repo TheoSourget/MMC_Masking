@@ -78,6 +78,9 @@ endif
 test_environment:
 	$(PYTHON_INTERPRETER) test_environment.py
 
+train:
+	$(PYTHON_INTERPRETER) src/models/train_model.py
+
 #################################################################################
 # PROJECT RULES                                                                 #
 #################################################################################
