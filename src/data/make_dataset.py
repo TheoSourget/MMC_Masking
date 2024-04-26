@@ -23,7 +23,7 @@ from src.models.lung_segmentation.model.Unet import Unet
 @click.argument('input_filepath', type=click.Path(exists=True))
 @click.argument('output_filepath', type=click.Path())
 @click.argument('classes', default=None,type=str)
-def main(input_filepath, output_filepath,classes):
+def main(input_filepath, output_filepath, classes):
     """ Runs data processing scripts to turn raw data from (data/raw) into
         cleaned data ready to be analyzed (saved in data/processed).
     """
@@ -38,14 +38,20 @@ def main(input_filepath, output_filepath,classes):
     filter_and_process_labels(input_filepath,output_filepath,classes)
     assert os.path.exists(f"{output_filepath}/processed_labels.csv")
     
-    logger.info(f'Creating image dataset in ./{output_filepath}/images')
-    create_images(input_filepath,output_filepath)
-    assert os.listdir(f"./{output_filepath}/images")
+    if os.listdir(f"./{output_filepath}/images") == []:
+        logger.info(f'Creating image dataset in ./{output_filepath}/images')
+        create_images(input_filepath,output_filepath)
+        assert os.listdir(f"./{output_filepath}/images")
+    else:
+        logger.info(f'./{output_filepath}/images not empty, skipping creation of images')
     
-    logger.info(f'Creating ROIs of images in ./{output_filepath}/rois')
-    create_rois(output_filepath)
-    assert os.listdir(f"./{output_filepath}/rois")
-    
+    if os.listdir(f"./{output_filepath}/rois") == []:
+        logger.info(f'Creating ROIs of images in ./{output_filepath}/rois')
+        create_rois(output_filepath)
+        assert os.listdir(f"./{output_filepath}/rois")
+    else:
+        logger.info(f'./{output_filepath}/rois not empty, skipping creation of rois')
+
     logger.info(f'Dataset is ready to be used!')
 
 
@@ -58,7 +64,6 @@ def filter_and_process_labels(input_filepath,output_filepath,classes):
     df_no_nan = base_df[~base_df["Labels"].isna()]
     # Excluding labels including the 'suboptimal study' label
     df_no_clear_label = df_no_nan[~df_no_nan["Labels"].str.contains('suboptimal study')]
-    df_no_clear_label = df_no_clear_label[~df_no_nan["Labels"].str.contains('normal')]
     df_no_clear_label = df_no_clear_label[~df_no_nan["Labels"].str.contains('exclude')]
     df_no_clear_label = df_no_clear_label[~df_no_nan["Labels"].str.contains('Unchanged')]
 
@@ -94,7 +99,7 @@ def filter_and_process_labels(input_filepath,output_filepath,classes):
                 new_labels = ['no finding']
             all_new_labels.append(new_labels)
             all_onehot_labels.append([1 if l in new_labels else 0 for l in accepted_classes])     
-        df_no_invalid['Labels'] =  all_new_labels
+        df_no_invalid['Processed_Labels'] =  all_new_labels
         df_no_invalid['Onehot'] = all_onehot_labels
 
     df_to_save = df_no_invalid.reset_index(drop=True)

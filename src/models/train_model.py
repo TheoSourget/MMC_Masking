@@ -30,7 +30,7 @@ def training_epoch(model,criterion,optimizer,train_dataloader):
     train_loss = 0.0
     lst_labels = []
     lst_preds = []
-    
+    lst_probas = []
     for i, data in enumerate(train_dataloader, 0):
         inputs, labels = data
         inputs,labels = inputs.float().to(DEVICE), torch.Tensor(np.array(labels).T).float().to(DEVICE)
@@ -39,20 +39,22 @@ def training_epoch(model,criterion,optimizer,train_dataloader):
         optimizer.zero_grad()
         # forward + backward + optimize
         outputs = model(inputs)
-            
         loss = criterion(outputs, labels)
         loss.backward()
         optimizer.step()
         train_loss += loss.item()
         output_sigmoid = sigmoid(outputs)
         lst_labels.extend(labels.cpu().detach().numpy())
+        lst_probas.extend(output_sigmoid.cpu().detach().numpy())
         lst_preds.extend(output_sigmoid.cpu().detach().numpy()>0.5)
+        
     lst_labels = np.array(lst_labels)
     lst_preds = np.array(lst_preds)
-    f1_scores=f1_score(lst_labels,lst_preds,average=None)
-    print("train",f1_scores,np.sum(lst_labels,axis=0),np.sum(lst_preds,axis=0),np.sum(lst_labels*lst_preds,axis=0))
+    lst_probas = np.array(lst_probas)
+    auc_scores=roc_auc_score(lst_labels,lst_probas,average=None)
+    print(f"train ({len(lst_labels)} images)",auc_scores,np.sum(lst_labels,axis=0),np.sum(lst_preds,axis=0),np.sum(lst_labels*lst_preds,axis=0))
 
-    return train_loss/lst_labels.shape[0],f1_scores
+    return train_loss/lst_labels.shape[0],auc_scores
 
 def valid_epoch(model,criterion,valid_dataloader):
     model.to(DEVICE)
@@ -60,6 +62,7 @@ def valid_epoch(model,criterion,valid_dataloader):
     val_loss = 0.0
     lst_labels = []
     lst_preds = []
+    lst_probas = []
     with torch.no_grad():
         for i, data in enumerate(valid_dataloader, 0):
             inputs, labels = data
@@ -69,12 +72,13 @@ def valid_epoch(model,criterion,valid_dataloader):
             val_loss += loss.item()
             output_sigmoid = sigmoid(outputs)
             lst_labels.extend(labels.cpu().detach().numpy())
+            lst_probas.extend(output_sigmoid.cpu().detach().numpy())
             lst_preds.extend(output_sigmoid.cpu().detach().numpy()>0.5)
         lst_labels = np.array(lst_labels)
         lst_preds = np.array(lst_preds)
-        f1_scores=f1_score(lst_labels,lst_preds,average=None)
-        print("val",f1_scores,np.sum(lst_labels,axis=0),np.sum(lst_preds,axis=0),np.sum(lst_labels*lst_preds,axis=0))
-    return val_loss/lst_labels.shape[0],f1_scores
+        auc_scores=roc_auc_score(lst_labels,lst_probas,average=None)
+        print(f"val ({len(lst_labels)} images)",auc_scores,np.sum(lst_labels,axis=0),np.sum(lst_preds,axis=0),np.sum(lst_labels*lst_preds,axis=0))
+    return val_loss/lst_labels.shape[0],auc_scores
 
 def main():
     #Get hyperparameters 
@@ -124,12 +128,19 @@ def main():
         y = np.array(train_data.img_labels["Onehot"].tolist())
         #Define model, loss and optimizer
         model = densenet121(weights='DEFAULT')#Weights pretrained on imagenet_1k
+        
+        #Freeze every layer except last denseblock and classifier
+        for param in model.parameters():
+            param.requires_grad = False
+        for param in model.features.denseblock4.denselayer16.parameters():
+            param.requires_grad = True
+        
         kernel_count = model.classifier.in_features
-        model.classifier = torch.nn.Linear(kernel_count, 2)
+        model.classifier = torch.nn.Linear(kernel_count, len(CLASSES))
+        
         model.to(DEVICE)
         
-        #weights = torch.as_tensor(np.sum(y==0,axis=0)/np.sum(y,axis=0),dtype=torch.float).to(DEVICE)
-        weights = torch.as_tensor([1,1],dtype=torch.float).to(DEVICE)
+        weights = torch.as_tensor(np.sum(y==0,axis=0)/np.sum(y,axis=0),dtype=torch.float).to(DEVICE)
         criterion = torch.nn.BCEWithLogitsLoss(pos_weight=weights)
         criterion.requires_grad = True
         
@@ -154,12 +165,12 @@ def main():
 
 
             for j,c in enumerate(CLASSES):
-                writer.add_scalar(f'Train F1 Scores {c}',
+                writer.add_scalar(f'Train AUC Scores {c}',
                                     train_metric[j],
                                     epoch)
                                     
             for j,c in enumerate(CLASSES):
-                writer.add_scalar(f'Validation F1 Scores {c}',
+                writer.add_scalar(f'Validation AUC Scores {c}',
                                     val_metric[j],
                                     epoch)
                 
