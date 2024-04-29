@@ -17,6 +17,7 @@ from PIL import Image
 from tqdm import tqdm
 import torch
 from src.models.lung_segmentation.model.Unet import Unet
+import tensorflow as tf
 
 
 @click.command()
@@ -105,9 +106,10 @@ def filter_and_process_labels(input_filepath,output_filepath,classes):
     df_to_save = df_no_invalid.reset_index(drop=True)
     df_to_save.to_csv(f"{output_filepath}/processed_labels.csv",sep=",")
 
-def create_images(input_filepath,output_filepath): 
+def create_images(input_filepath,output_filepath):
     #Load labels
     labels = pd.read_csv(f'{output_filepath}/processed_labels.csv')
+    labels["Onehot"] = labels["Onehot"].apply(lambda x: ast.literal_eval(x))
     #Filter images to remove lateral views
     
     #Get images present at input_filepath
@@ -116,11 +118,13 @@ def create_images(input_filepath,output_filepath):
     for idx,i_name in enumerate(tqdm(image_names)):
         #Resize the image and save it in the processed folder
         if i_name in labels["ImageID"].unique():
-            img = io.imread(images_path[idx])
-            img = resize(img,(512,512))
-            img = (img*255).astype(np.uint8)
-            io.imsave(f"./{output_filepath}/images/{i_name}",img)
-    
+            if not sum(labels[labels["ImageID"]==i_name]["Onehot"].sum()) == 0:
+                img = np.expand_dims(io.imread(images_path[idx]),-1)
+                max_value = np.max(img) 
+                img = tf.image.resize_with_pad(img, 512, 512)
+                img = img/max_value
+                tf.keras.utils.save_img(f"./{output_filepath}/images/{i_name}", img, scale=True, data_format="channels_last")        
+        
 def rle2mask(mask_rle: str, label=1, shape=(3520,4280)):
     """
     mask_rle: run-length as string formatted (start length)
@@ -186,11 +190,13 @@ def create_rois(output_filepath):
     for idx,row in tqdm(masks_df.dropna().iterrows()):
         if row['ImageID'] not in images_present:
             continue
-        mask = decode_both_lungs(row)
-        mask_resize = resize(mask,(512,512))
+        mask = np.expand_dims(decode_both_lungs(row),-1)
+        mask_resize = tf.image.resize_with_pad(mask, 512, 512)
         mask_resize = mask_resize > 0
-        mask_img = Image.fromarray(mask_resize)
-        mask_img.save(f"./{output_filepath}/rois/{row['ImageID']}")
+        # mask_img = Image.fromarray(mask_resize)
+        # mask_img.save(f"./{output_filepath}/rois/{row['ImageID']}")
+        tf.keras.utils.save_img(f"./{output_filepath}/rois/{row['ImageID']}", mask_resize, scale=True, data_format="channels_last")        
+
         mask_present.append(row['ImageID'])
     for imageID in (set(images_present)-set(mask_present)):
         os.remove(f"./{output_filepath}/images/{imageID}")
