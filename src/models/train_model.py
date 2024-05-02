@@ -13,6 +13,7 @@ from carbontracker.tracker import CarbonTracker
 import torch
 import torch.optim as optim
 from torchvision.models import resnet50,densenet121
+from torchvision.transforms import v2
 from torch.nn.functional import sigmoid
 from sklearn.metrics import roc_auc_score,f1_score
 
@@ -33,7 +34,7 @@ def training_epoch(model,criterion,optimizer,train_dataloader):
     lst_probas = []
     for i, data in enumerate(train_dataloader, 0):
         inputs, labels = data
-        inputs,labels = inputs.float().to(DEVICE), torch.Tensor(np.array(labels).T).float().to(DEVICE)
+        inputs,labels = inputs.float().to(DEVICE), torch.Tensor(np.array(labels)).float().to(DEVICE)
 
         # zero the parameter gradients
         optimizer.zero_grad()
@@ -44,6 +45,9 @@ def training_epoch(model,criterion,optimizer,train_dataloader):
         optimizer.step()
         train_loss += loss.item()
         output_sigmoid = sigmoid(outputs)
+        
+        # if i == 0:
+        #     print(labels.cpu().detach().numpy(),"\n",output_sigmoid.cpu().detach().numpy(),"\n",output_sigmoid.cpu().detach().numpy()>0.5)
         lst_labels.extend(labels.cpu().detach().numpy())
         lst_probas.extend(output_sigmoid.cpu().detach().numpy())
         lst_preds.extend(output_sigmoid.cpu().detach().numpy()>0.5)
@@ -51,10 +55,11 @@ def training_epoch(model,criterion,optimizer,train_dataloader):
     lst_labels = np.array(lst_labels)
     lst_preds = np.array(lst_preds)
     lst_probas = np.array(lst_probas)
-    auc_scores=roc_auc_score(lst_labels,lst_probas,average=None)
-    print(f"train ({len(lst_labels)} images)",auc_scores,np.sum(lst_labels,axis=0),np.sum(lst_preds,axis=0),np.sum(lst_labels*lst_preds,axis=0))
+    auc_scores=None#roc_auc_score(lst_labels,lst_probas,average=None)
+    f1_scores = f1_score(lst_labels,lst_preds,average=None)
+    print(f"train ({len(lst_labels)} images)",auc_scores,f1_scores,np.sum(lst_labels,axis=0),np.sum(lst_preds,axis=0),np.sum(lst_labels*lst_preds,axis=0),flush=True)
 
-    return train_loss/lst_labels.shape[0],auc_scores
+    return train_loss/lst_labels.shape[0],f1_scores#auc_scores
 
 def valid_epoch(model,criterion,valid_dataloader):
     model.to(DEVICE)
@@ -66,19 +71,22 @@ def valid_epoch(model,criterion,valid_dataloader):
     with torch.no_grad():
         for i, data in enumerate(valid_dataloader, 0):
             inputs, labels = data
-            inputs,labels = inputs.float().to(DEVICE), torch.Tensor(np.array(labels).T).float().to(DEVICE)
+            inputs,labels = inputs.float().to(DEVICE), torch.Tensor(np.array(labels)).float().to(DEVICE)
             outputs = model(inputs)
             loss = criterion(outputs, labels)
             val_loss += loss.item()
             output_sigmoid = sigmoid(outputs)
+            if i == 0:
+                print(labels.cpu().detach().numpy(),"\n",output_sigmoid.cpu().detach().numpy(),"\n",output_sigmoid.cpu().detach().numpy()>0.5)
             lst_labels.extend(labels.cpu().detach().numpy())
             lst_probas.extend(output_sigmoid.cpu().detach().numpy())
             lst_preds.extend(output_sigmoid.cpu().detach().numpy()>0.5)
         lst_labels = np.array(lst_labels)
         lst_preds = np.array(lst_preds)
-        auc_scores=roc_auc_score(lst_labels,lst_probas,average=None)
-        print(f"val ({len(lst_labels)} images)",auc_scores,np.sum(lst_labels,axis=0),np.sum(lst_preds,axis=0),np.sum(lst_labels*lst_preds,axis=0))
-    return val_loss/lst_labels.shape[0],auc_scores
+        auc_scores=None#roc_auc_score(lst_labels,lst_probas,average=None)
+        f1_scores = f1_score(lst_labels,lst_preds,average=None)
+        print(f"val ({len(lst_labels)} images)",auc_scores,f1_scores,np.sum(lst_labels,axis=0),np.sum(lst_preds,axis=0),np.sum(lst_labels*lst_preds,axis=0),flush=True)
+    return val_loss/lst_labels.shape[0],f1_scores#auc_scores
 
 def main():
     #Get hyperparameters 
@@ -105,17 +113,23 @@ def main():
     testing_data.img_paths = np.array(testing_data.img_paths)[test_idx]
     testing_data.roi_paths = np.array(testing_data.roi_paths)[test_idx]
     
+    #Define data augmentation
+    transforms = v2.Compose([
+        v2.RandomRotation(degrees=45),
+        v2.RandomHorizontalFlip(p=0.5),
+        v2.ColorJitter(brightness=(0.7,1.1))
+    ])
+
     #Create k-fold for train/val
     group_kfold = GroupKFold(n_splits=NB_FOLDS)
     for i, (train_index,val_index) in enumerate(group_kfold.split(training_data.img_labels, groups= training_data.img_labels['PatientID'])):
-        
         writer = SummaryWriter(f'{base_run_name}/Fold{i}')
-        train_data = MaskingDataset(data_dir="./data/processed")
+        train_data = MaskingDataset(data_dir="./data/processed",transform=transforms,masking_spread=None,inverse_roi=True)
         train_data.img_labels = training_data.img_labels.iloc[train_index].reset_index(drop=True)
         train_data.img_paths = np.array(training_data.img_paths)[train_index]
         train_data.roi_paths = np.array(training_data.roi_paths)[train_index]
         
-        val_data = MaskingDataset(data_dir="./data/processed")
+        val_data = MaskingDataset(data_dir="./data/processed",masking_spread=None,inverse_roi=True)
         val_data.img_labels = training_data.img_labels.iloc[val_index].reset_index(drop=True)
         val_data.img_paths = np.array(training_data.img_paths)[val_index]
         val_data.roi_paths = np.array(training_data.roi_paths)[val_index]
@@ -129,19 +143,28 @@ def main():
         #Define model, loss and optimizer
         model = densenet121(weights='DEFAULT')#Weights pretrained on imagenet_1k
         
-        #Freeze every layer except last denseblock and classifier
+        # Freeze every layer except last denseblock and classifier
         for param in model.parameters():
             param.requires_grad = False
         for param in model.features.denseblock4.denselayer16.parameters():
             param.requires_grad = True
         
+        # for param in model.features.conv0.parameters():
+        #     param.requires_grad = False
+        # for param in model.features.denseblock1.parameters():
+        #     param.requires_grad = False
+
         kernel_count = model.classifier.in_features
-        model.classifier = torch.nn.Linear(kernel_count, len(CLASSES))
+        model.classifier = torch.nn.Sequential(
+         torch.nn.Flatten(),
+         torch.nn.Linear(kernel_count, len(CLASSES))
+        )
         
         model.to(DEVICE)
         
-        weights = torch.as_tensor(np.sum(y==0,axis=0)/np.sum(y,axis=0),dtype=torch.float).to(DEVICE)
-        criterion = torch.nn.BCEWithLogitsLoss(pos_weight=weights)
+        criterion = torch.nn.BCEWithLogitsLoss()
+        # weights = torch.as_tensor(np.sum(y==0,axis=0)/np.sum(y,axis=0),dtype=torch.float).to(DEVICE)
+        # criterion = torch.nn.BCEWithLogitsLoss(pos_weight=weights)
         criterion.requires_grad = True
         
         optimizer = optim.Adam(model.parameters(),lr=LEARNING_RATE)
@@ -174,13 +197,13 @@ def main():
                                     val_metric[j],
                                     epoch)
                 
-            print(f"Training Loss: {train_loss} \tValid Loss: {val_loss}")
+            print(f"\nTraining Loss: {train_loss} \tValid Loss: {val_loss}",flush=True)
 
             # if i==0:
             #     tracker.epoch_end()
             #     tracker.stop()
         writer.close() 
-        
+        break
 if __name__ == '__main__':
     log_fmt = '%(asctime)s - %(name)s - %(levelname)s - %(message)s'
     logging.basicConfig(level=logging.INFO, format=log_fmt)

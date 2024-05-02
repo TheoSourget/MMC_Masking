@@ -11,7 +11,7 @@ import numpy as np
 import cv2
 
 class MaskingDataset(Dataset):
-    def __init__(self, data_dir, masking_spread=None, inverse_roi=False, transform=None, target_transform=None):
+    def __init__(self, data_dir, masking_spread=None, inverse_roi=False, transform=None):
         self.img_paths = glob.glob(f'{data_dir.removesuffix("/")}/images/*.png')
         self.roi_paths = glob.glob(f'{data_dir.removesuffix("/")}/rois/*.png')
         self.img_labels = pd.read_csv(f'{data_dir.removesuffix("/")}/processed_labels.csv',index_col=0)
@@ -20,7 +20,6 @@ class MaskingDataset(Dataset):
         self.masking_spread = masking_spread
         self.inverse_roi = inverse_roi
         self.transform = transform
-        self.target_transform = target_transform
 
     def __len__(self):
         return len(self.img_paths)
@@ -29,7 +28,7 @@ class MaskingDataset(Dataset):
         img_path = self.img_paths[idx]
         roi_path = self.roi_paths[idx]
         image = read_image(img_path,ImageReadMode.RGB)
-        
+        image = image / image.max()
         if self.masking_spread != None:
             roi = plt.imread(roi_path).astype(np.uint8)
             
@@ -47,6 +46,4 @@ class MaskingDataset(Dataset):
         label = self.img_labels.iloc[idx]["Onehot"]
         if self.transform:
             image = self.transform(image)
-        if self.target_transform:
-            label = self.target_transform(label)
-        return image, label
+        return torch.Tensor(image), torch.Tensor(label)
