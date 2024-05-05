@@ -46,8 +46,6 @@ def training_epoch(model,criterion,optimizer,train_dataloader):
         train_loss += loss.item()
         output_sigmoid = sigmoid(outputs)
         
-        # if i == 0:
-        #     print(labels.cpu().detach().numpy(),"\n",output_sigmoid.cpu().detach().numpy(),"\n",output_sigmoid.cpu().detach().numpy()>0.5)
         lst_labels.extend(labels.cpu().detach().numpy())
         lst_probas.extend(output_sigmoid.cpu().detach().numpy())
         lst_preds.extend(output_sigmoid.cpu().detach().numpy()>0.5)
@@ -55,11 +53,10 @@ def training_epoch(model,criterion,optimizer,train_dataloader):
     lst_labels = np.array(lst_labels)
     lst_preds = np.array(lst_preds)
     lst_probas = np.array(lst_probas)
-    auc_scores=None#roc_auc_score(lst_labels,lst_probas,average=None)
-    f1_scores = f1_score(lst_labels,lst_preds,average=None)
-    print(f"train ({len(lst_labels)} images)",auc_scores,f1_scores,np.sum(lst_labels,axis=0),np.sum(lst_preds,axis=0),np.sum(lst_labels*lst_preds,axis=0),flush=True)
+    auc_scores=roc_auc_score(lst_labels,lst_probas,average=None)
+    print(f"train ({len(lst_labels)} images)",auc_scores,flush=True)
 
-    return train_loss/lst_labels.shape[0],f1_scores#auc_scores
+    return train_loss/lst_labels.shape[0],auc_scores
 
 def valid_epoch(model,criterion,valid_dataloader):
     model.to(DEVICE)
@@ -76,17 +73,15 @@ def valid_epoch(model,criterion,valid_dataloader):
             loss = criterion(outputs, labels)
             val_loss += loss.item()
             output_sigmoid = sigmoid(outputs)
-            if i == 0:
-                print(labels.cpu().detach().numpy(),"\n",output_sigmoid.cpu().detach().numpy(),"\n",output_sigmoid.cpu().detach().numpy()>0.5)
             lst_labels.extend(labels.cpu().detach().numpy())
             lst_probas.extend(output_sigmoid.cpu().detach().numpy())
             lst_preds.extend(output_sigmoid.cpu().detach().numpy()>0.5)
+
         lst_labels = np.array(lst_labels)
         lst_preds = np.array(lst_preds)
-        auc_scores=None#roc_auc_score(lst_labels,lst_probas,average=None)
-        f1_scores = f1_score(lst_labels,lst_preds,average=None)
-        print(f"val ({len(lst_labels)} images)",auc_scores,f1_scores,np.sum(lst_labels,axis=0),np.sum(lst_preds,axis=0),np.sum(lst_labels*lst_preds,axis=0),flush=True)
-    return val_loss/lst_labels.shape[0],f1_scores#auc_scores
+        auc_scores=roc_auc_score(lst_labels,lst_probas,average=None)
+        print(f"val ({len(lst_labels)} images)",auc_scores,flush=True)
+    return val_loss/lst_labels.shape[0],auc_scores
 
 def main():
     #Get hyperparameters 
@@ -95,6 +90,7 @@ def main():
     BATCH_SIZE = int(os.environ.get("BATCH_SIZE"))
     LEARNING_RATE = float(os.environ.get("LEARNING_RATE"))
     CLASSES = os.environ.get("CLASSES").split(",")
+    MODEL_NAME = os.environ.get("MODEL_NAME")
     base_run_name = f'runs/{datetime.now().strftime("%b_%d_%Y_%H%M%S")}'
 
     #Load the base dataset
@@ -148,12 +144,7 @@ def main():
             param.requires_grad = False
         for param in model.features.denseblock4.denselayer16.parameters():
             param.requires_grad = True
-        
-        # for param in model.features.conv0.parameters():
-        #     param.requires_grad = False
-        # for param in model.features.denseblock1.parameters():
-        #     param.requires_grad = False
-
+       
         kernel_count = model.classifier.in_features
         model.classifier = torch.nn.Sequential(
          torch.nn.Flatten(),
@@ -173,8 +164,10 @@ def main():
             # if i == 0 and epoch == 0:
             #     tracker = CarbonTracker(epochs=NB_EPOCHS*NB_FOLDS,stop_and_confirm=False,components="gpu")
             #     tracker.epoch_start()
+           
             #Training
             train_loss,train_metric = training_epoch(model,criterion,optimizer,train_dataloader)
+            
             #Validation
             val_loss,val_metric = valid_epoch(model,criterion,valid_dataloader)
             
@@ -196,7 +189,9 @@ def main():
                 writer.add_scalar(f'Validation AUC Scores {c}',
                                     val_metric[j],
                                     epoch)
-                
+
+            torch.save(model.state_dict(),f'./models/{MODEL_NAME}.pt')
+
             print(f"\nTraining Loss: {train_loss} \tValid Loss: {val_loss}",flush=True)
 
             # if i==0:
