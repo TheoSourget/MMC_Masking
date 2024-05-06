@@ -91,6 +91,10 @@ def main():
     LEARNING_RATE = float(os.environ.get("LEARNING_RATE"))
     CLASSES = os.environ.get("CLASSES").split(",")
     MODEL_NAME = os.environ.get("MODEL_NAME")
+    
+    ES_PATIENCE = int(os.environ.get("ES_PATIENCE"))
+    ES_DELTA = float(os.environ.get("ES_DELTA"))
+    
     base_run_name = f'runs/{datetime.now().strftime("%b_%d_%Y_%H%M%S")}'
 
     #Load the base dataset
@@ -118,6 +122,7 @@ def main():
 
     #Create k-fold for train/val
     group_kfold = GroupKFold(n_splits=NB_FOLDS)
+    
     for i, (train_index,val_index) in enumerate(group_kfold.split(training_data.img_labels, groups= training_data.img_labels['PatientID'])):
         writer = SummaryWriter(f'{base_run_name}/Fold{i}')
         train_data = MaskingDataset(data_dir="./data/processed",transform=transforms,masking_spread=None,inverse_roi=True)
@@ -159,6 +164,10 @@ def main():
         criterion.requires_grad = True
         
         optimizer = optim.Adam(model.parameters(),lr=LEARNING_RATE)
+
+
+        earlystopping_count = 0
+        best_loss = np.inf
         #Training epoch process
         for epoch in tqdm(range(NB_EPOCHS)):
             # if i == 0 and epoch == 0:
@@ -190,10 +199,22 @@ def main():
                                     val_metric[j],
                                     epoch)
 
-            torch.save(model.state_dict(),f'./models/{MODEL_NAME}.pt')
+
 
             print(f"\nTraining Loss: {train_loss} \tValid Loss: {val_loss}",flush=True)
+            if val_loss < best_loss:
+                print(f"Model saved epoch {epoch}")
+                torch.save(model.state_dict(),f'./models/{MODEL_NAME}.pt')
+                best_loss = val_loss
+                earlystopping_count = 0
+            elif val_loss + ES_DELTA > best_loss :
+                earlystopping_count += 1
+            else:
+                earlystopping_count = 0
 
+            if earlystopping_count >= ES_PATIENCE:
+                print(f"Early Stopping at epoch {epoch}")
+                break
             # if i==0:
             #     tracker.epoch_end()
             #     tracker.stop()
