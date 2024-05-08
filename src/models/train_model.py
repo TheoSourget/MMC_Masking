@@ -204,7 +204,7 @@ def main():
             print(f"\nTraining Loss: {train_loss} \tValid Loss: {val_loss}",flush=True)
             if val_loss < best_loss:
                 print(f"Model saved epoch {epoch}")
-                torch.save(model.state_dict(),f'./models/{MODEL_NAME}.pt')
+                torch.save(model.state_dict(),f'./models/{MODEL_NAME}_Fold{i}.pt')
                 best_loss = val_loss
                 earlystopping_count = 0
             elif val_loss + ES_DELTA > best_loss :
@@ -219,7 +219,6 @@ def main():
             #     tracker.epoch_end()
             #     tracker.stop()
         writer.close() 
-        break
 if __name__ == '__main__':
     log_fmt = '%(asctime)s - %(name)s - %(levelname)s - %(message)s'
     logging.basicConfig(level=logging.INFO, format=log_fmt)
