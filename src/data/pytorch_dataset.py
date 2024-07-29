@@ -11,7 +11,7 @@ import numpy as np
 import cv2
 
 class MaskingDataset(Dataset):
-    def __init__(self, data_dir, masking_spread=None, inverse_roi=False, transform=None):
+    def __init__(self, data_dir, masking_spread=None, inverse_roi=False, bounding_box=False, transform=None):
         self.img_paths = glob.glob(f'{data_dir.removesuffix("/")}/images/*.png')
         self.roi_paths = glob.glob(f'{data_dir.removesuffix("/")}/rois/*.png')
         self.img_labels = pd.read_csv(f'{data_dir.removesuffix("/")}/processed_labels.csv',index_col=0)
@@ -23,6 +23,7 @@ class MaskingDataset(Dataset):
 
         self.masking_spread = masking_spread
         self.inverse_roi = inverse_roi
+        self.bounding_box = bounding_box
         self.transform = transform
 
     def __len__(self):
@@ -41,6 +42,15 @@ class MaskingDataset(Dataset):
                 roi = cv2.erode(roi,kernel,iterations=abs(self.masking_spread))   
             elif self.masking_spread > 0:
                 roi = cv2.dilate(roi,kernel,iterations=abs(self.masking_spread))
+            
+            if self.bounding_box:
+                mask_coords = np.where(roi != 0)
+                min_x = min(mask_coords[0])
+                max_x = max(mask_coords[0])
+                min_y = min(mask_coords[1])
+                max_y = max(mask_coords[1])
+                roi[min_x:max_x,min_y:max_y] = 1
+
             roi = torch.Tensor(roi).bool()
             if self.inverse_roi:
                 image *= roi
