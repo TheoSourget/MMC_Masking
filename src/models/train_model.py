@@ -23,6 +23,7 @@ from torch.utils.data import DataLoader
 from sklearn.model_selection import GroupShuffleSplit, GroupKFold
 from src.data.pytorch_dataset import MaskingDataset
 
+torch.manual_seed(1907)
 DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 def training_epoch(model,criterion,optimizer,train_dataloader):
@@ -95,6 +96,10 @@ def main():
     ES_PATIENCE = int(os.environ.get("ES_PATIENCE"))
     ES_DELTA = float(os.environ.get("ES_DELTA"))
     
+    masking_spread = 0
+    inverse_roi = False
+    bounding_box = True
+
     base_run_name = f'runs/{datetime.now().strftime("%b_%d_%Y_%H%M%S")}'
 
     #Load the base dataset
@@ -125,12 +130,12 @@ def main():
     
     for i, (train_index,val_index) in enumerate(group_kfold.split(training_data.img_labels, groups= training_data.img_labels['PatientID'])):
         writer = SummaryWriter(f'{base_run_name}/Fold{i}')
-        train_data = MaskingDataset(data_dir="./data/processed",transform=transforms,masking_spread=None,inverse_roi=True)
+        train_data = MaskingDataset(data_dir="./data/processed",transform=transforms,masking_spread=masking_spread,inverse_roi=inverse_roi,bounding_box=bounding_box)
         train_data.img_labels = training_data.img_labels.iloc[train_index].reset_index(drop=True)
         train_data.img_paths = np.array(training_data.img_paths)[train_index]
         train_data.roi_paths = np.array(training_data.roi_paths)[train_index]
         
-        val_data = MaskingDataset(data_dir="./data/processed",masking_spread=None,inverse_roi=True)
+        val_data = MaskingDataset(data_dir="./data/processed",masking_spread=masking_spread,inverse_roi=inverse_roi,bounding_box=bounding_box)
         val_data.img_labels = training_data.img_labels.iloc[val_index].reset_index(drop=True)
         val_data.img_paths = np.array(training_data.img_paths)[val_index]
         val_data.roi_paths = np.array(training_data.roi_paths)[val_index]
