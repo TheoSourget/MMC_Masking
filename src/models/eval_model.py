@@ -52,7 +52,7 @@ def main():
     NB_FOLDS = int(os.environ.get("NB_FOLDS"))
     BATCH_SIZE = int(os.environ.get("BATCH_SIZE"))
     CLASSES = os.environ.get("CLASSES").split(",")
-    MODEL_NAME = os.environ.get("MODEL_NAME")
+    models_names=["NormalDataset","NoLungDataset_0","OnlyLungDataset_0"]
         
     #Load the base dataset
     training_data = MaskingDataset(data_dir="./data/processed")
@@ -74,41 +74,57 @@ def main():
     #Create k-fold for train/val
     group_kfold = GroupKFold(n_splits=NB_FOLDS)
     
-    for i, (train_index,val_index) in enumerate(group_kfold.split(training_data.img_labels, groups= training_data.img_labels['PatientID'])):        
-        print("\nFOLD",i)
-        val_data = MaskingDataset(data_dir="./data/processed",masking_spread=None,inverse_roi=True)
-        val_data.img_labels = training_data.img_labels.iloc[val_index].reset_index(drop=True)
-        val_data.img_paths = np.array(training_data.img_paths)[val_index]
-        val_data.roi_paths = np.array(training_data.roi_paths)[val_index]
+    valid_params={
+        "Normal":{"masking_spread":None,"inverse_roi":False,"bounding_box":False},
+        "NoLung":{"masking_spread":0,"inverse_roi":False,"bounding_box":False},
+        "NoLungBB":{"masking_spread":0,"inverse_roi":False,"bounding_box":True},
+        "OnlyLung":{"masking_spread":0,"inverse_roi":True,"bounding_box":False},
+        "OnlyLungBB":{"masking_spread":0,"inverse_roi":True,"bounding_box":True}
+    }
 
-        valid_dataloader = DataLoader(val_data, batch_size=BATCH_SIZE)
-        
-        
-        #Define model, loss and optimizer
-        model = densenet121(weights='DEFAULT')#Weights pretrained on imagenet_1k
-        
-        # Freeze every layer except last denseblock and classifier
-        for param in model.parameters():
-            param.requires_grad = False
-        for param in model.features.denseblock4.denselayer16.parameters():
-            param.requires_grad = True
-       
-        kernel_count = model.classifier.in_features
-        model.classifier = torch.nn.Sequential(
-         torch.nn.Flatten(),
-         torch.nn.Linear(kernel_count, len(CLASSES))
-        )
-        
-        try:
-            model.load_state_dict(torch.load(f"./models/{MODEL_NAME}/{MODEL_NAME}_Fold{i}.pt"))
-            model.to(DEVICE)
-        except FileNotFoundError as e:
-            print("No model saved for fold",i)
-            continue
+    with open("./data/interim/valid_results.csv", "w") as csv_file:
+        csv_file.write("training_set,valid_set,class,fold,auc")
 
-        val_metric = valid_epoch(model,valid_dataloader)
-        for i,c in enumerate(CLASSES):
-            print(c,val_metric[i])    
+    for model_name in models_names:
+        for param_config_name in valid_params:
+            print(model_name,param_config_name)
+            for i, (train_index,val_index) in enumerate(group_kfold.split(training_data.img_labels, groups= training_data.img_labels['PatientID'])):        
+                print("\nFOLD",i)
+                val_data = MaskingDataset(data_dir="./data/processed",**valid_params[param_config_name])
+                val_data.img_labels = training_data.img_labels.iloc[val_index].reset_index(drop=True)
+                val_data.img_paths = np.array(training_data.img_paths)[val_index]
+                val_data.roi_paths = np.array(training_data.roi_paths)[val_index]
+
+                valid_dataloader = DataLoader(val_data, batch_size=BATCH_SIZE)
+                
+                
+                #Define model, loss and optimizer
+                model = densenet121(weights='DEFAULT')#Weights pretrained on imagenet_1k
+                
+                # Freeze every layer except last denseblock and classifier
+                for param in model.parameters():
+                    param.requires_grad = False
+                for param in model.features.denseblock4.denselayer16.parameters():
+                    param.requires_grad = True
+               
+                kernel_count = model.classifier.in_features
+                model.classifier = torch.nn.Sequential(
+                 torch.nn.Flatten(),
+                 torch.nn.Linear(kernel_count, len(CLASSES))
+                )
+                
+                try:
+                    model.load_state_dict(torch.load(f"./models/{model_name}/{model_name}_Fold{i}.pt"))
+                    model.to(DEVICE)
+                except FileNotFoundError as e:
+                    print("No model saved for fold",i)
+                    continue
+
+                val_metric = valid_epoch(model,valid_dataloader)
+                with open("./data/interim/valid_results.csv", "a") as csv_file:
+                    for j,c in enumerate(CLASSES):
+                        csv_file.write(f"\n{model_name},{param_config_name},{c},{i},{val_metric[j]}")
+                        print(c,val_metric[j])    
 
 if __name__ == '__main__':
     log_fmt = '%(asctime)s - %(name)s - %(levelname)s - %(message)s'
