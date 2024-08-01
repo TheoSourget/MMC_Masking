@@ -38,7 +38,9 @@ requests
 scikit-image
 scikit-learn
 scipy
+seaborn
 setuptools
+shap
 six
 snowballstemmer
 Sphinx
