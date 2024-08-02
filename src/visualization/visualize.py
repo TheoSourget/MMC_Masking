@@ -97,6 +97,10 @@ def generate_explainability_map():
              torch.nn.Linear(kernel_count, len(CLASSES))
             )
             
+            for module in model.modules():
+                if isinstance(module, torch.nn.ReLU):
+                    module.inplace = False
+                    
             try:
                 model.load_state_dict(torch.load(f"./models/{model_name}/{model_name}_Fold{i}.pt"))
                 model.to(DEVICE)
