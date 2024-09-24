@@ -222,14 +222,15 @@ def get_cosine():
         nolungbb = models_flatten_output["NoLungDatasetBB_0"][j]
         onlylung = models_flatten_output["OnlyLungDataset_0"][j]
         onlylungbb = models_flatten_output["OnlyLungDatasetBB_0"][j]
-        no_lung_similarities.append(1- cosine(normal,nolung))
-        only_lung_similarities.append(1- cosine(normal,onlylung))
+
         no_lung_similarities.append(1- cosine(normal,nolung))
         no_lungbb_similarities.append(1- cosine(normal,nolungbb))
         only_lung_similarities.append(1- cosine(normal,onlylung))
         only_lungbb_similarities.append(1- cosine(normal,onlylungbb))
-    print("all",np.mean(no_lung_similarities),np.mean(no_lungbb_similarities), np.mean(only_lung_similarities),np.mean(only_lungbb_similarities))
-
+    print(f"all,{np.mean(no_lung_similarities)}+/-{np.std(no_lung_similarities)},\
+            {np.mean(no_lungbb_similarities)}+/-{np.std(no_lungbb_similarities)},\
+            {np.mean(only_lung_similarities)}+/-{np.std(only_lung_similarities)},\
+            {np.mean(only_lungbb_similarities)}+/-{np.std(only_lungbb_similarities)}")
     #Per class
     for i,c in enumerate(CLASSES):
         no_lung_similarities = []
@@ -248,8 +249,11 @@ def get_cosine():
             no_lungbb_similarities.append(1- cosine(normal,nolungbb))
             only_lung_similarities.append(1- cosine(normal,onlylung))
             only_lungbb_similarities.append(1- cosine(normal,onlylungbb))
-        print(c,np.mean(no_lung_similarities),np.mean(no_lungbb_similarities), np.mean(only_lung_similarities),np.mean(only_lungbb_similarities))
-
+        print(f"{c},{np.mean(no_lung_similarities)}+/-{np.std(no_lung_similarities)},\
+                {np.mean(no_lungbb_similarities)}+/-{np.std(no_lungbb_similarities)},\
+                {np.mean(only_lung_similarities)}+/-{np.std(only_lung_similarities)},\
+                {np.mean(only_lungbb_similarities)}+/-{np.std(only_lungbb_similarities)}")
+        
 def main():
     # generate_auc_per_label()
     #generate_explainability_map()
