@@ -52,7 +52,7 @@ def main():
     NB_FOLDS = int(os.environ.get("NB_FOLDS"))
     BATCH_SIZE = int(os.environ.get("BATCH_SIZE"))
     CLASSES = os.environ.get("CLASSES").split(",")
-    models_names=["NormalDataset","NoLungDataset_0","OnlyLungDataset_0"]
+    models_names=["NormalDataset","NoLungDataset_0","OnlyLungDataset_0","NoLungBBDataset_0","OnlyLungBBDataset_0"]
         
     #Load the base dataset
     training_data = MaskingDataset(data_dir="./data/processed")
@@ -82,7 +82,7 @@ def main():
         "OnlyLungBB":{"masking_spread":0,"inverse_roi":True,"bounding_box":True}
     }
 
-    with open("./data/interim/valid_results.csv", "w") as csv_file:
+    with open("./data/interim/test_results.csv", "w") as csv_file:
         csv_file.write("training_set,valid_set,class,fold,auc")
 
     for model_name in models_names:
@@ -95,8 +95,8 @@ def main():
                 val_data.img_paths = np.array(training_data.img_paths)[val_index]
                 val_data.roi_paths = np.array(training_data.roi_paths)[val_index]
 
-                valid_dataloader = DataLoader(val_data, batch_size=BATCH_SIZE)
-                
+                #valid_dataloader = DataLoader(val_data, batch_size=BATCH_SIZE)
+                valid_dataloader = DataLoader(testing_data, batch_size=BATCH_SIZE)
                 
                 #Define model, loss and optimizer
                 model = densenet121(weights='DEFAULT')#Weights pretrained on imagenet_1k
@@ -121,7 +121,7 @@ def main():
                     continue
 
                 val_metric = valid_epoch(model,valid_dataloader)
-                with open("./data/interim/valid_results.csv", "a") as csv_file:
+                with open("./data/interim/test_results.csv", "a") as csv_file:
                     for j,c in enumerate(CLASSES):
                         csv_file.write(f"\n{model_name},{param_config_name},{c},{i},{val_metric[j]}")
                         print(c,val_metric[j])    
