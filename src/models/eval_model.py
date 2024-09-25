@@ -52,6 +52,7 @@ def main():
     NB_FOLDS = int(os.environ.get("NB_FOLDS"))
     BATCH_SIZE = int(os.environ.get("BATCH_SIZE"))
     CLASSES = os.environ.get("CLASSES").split(",")
+    TEST = True
     models_names=["NormalDataset","NoLungDataset_0","OnlyLungDataset_0","NoLungBBDataset_0","OnlyLungBBDataset_0"]
         
     #Load the base dataset
@@ -82,21 +83,31 @@ def main():
         "OnlyLungBB":{"masking_spread":0,"inverse_roi":True,"bounding_box":True}
     }
 
-    with open("./data/interim/test_results.csv", "w") as csv_file:
-        csv_file.write("training_set,valid_set,class,fold,auc")
+    if TEST:
+        with open("./data/interim/test_results.csv", "w") as csv_file:
+            csv_file.write("training_set,valid_set,class,fold,auc")
+    else:
+        with open("./data/interim/valid_results.csv", "w") as csv_file:
+            csv_file.write("training_set,valid_set,class,fold,auc")
 
     for model_name in models_names:
         for param_config_name in valid_params:
             print(model_name,param_config_name)
             for i, (train_index,val_index) in enumerate(group_kfold.split(training_data.img_labels, groups= training_data.img_labels['PatientID'])):        
                 print("\nFOLD",i)
-                val_data = MaskingDataset(data_dir="./data/processed",**valid_params[param_config_name])
-                val_data.img_labels = training_data.img_labels.iloc[val_index].reset_index(drop=True)
-                val_data.img_paths = np.array(training_data.img_paths)[val_index]
-                val_data.roi_paths = np.array(training_data.roi_paths)[val_index]
-
-                #valid_dataloader = DataLoader(val_data, batch_size=BATCH_SIZE)
-                valid_dataloader = DataLoader(testing_data, batch_size=BATCH_SIZE)
+                
+                if TEST:
+                    testing_data = MaskingDataset(data_dir="./data/processed",**valid_params[param_config_name])
+                    testing_data.img_labels = testing_data.img_labels.iloc[test_idx].reset_index(drop=True)
+                    testing_data.img_paths = np.array(testing_data.img_paths)[test_idx]
+                    testing_data.roi_paths = np.array(testing_data.roi_paths)[test_idx]
+                    valid_dataloader = DataLoader(testing_data, batch_size=BATCH_SIZE)
+                else:
+                    val_data = MaskingDataset(data_dir="./data/processed",**valid_params[param_config_name])
+                    val_data.img_labels = training_data.img_labels.iloc[val_index].reset_index(drop=True)
+                    val_data.img_paths = np.array(training_data.img_paths)[val_index]
+                    val_data.roi_paths = np.array(training_data.roi_paths)[val_index]
+                    valid_dataloader = DataLoader(val_data, batch_size=BATCH_SIZE)
                 
                 #Define model, loss and optimizer
                 model = densenet121(weights='DEFAULT')#Weights pretrained on imagenet_1k
@@ -121,10 +132,16 @@ def main():
                     continue
 
                 val_metric = valid_epoch(model,valid_dataloader)
-                with open("./data/interim/test_results.csv", "a") as csv_file:
-                    for j,c in enumerate(CLASSES):
-                        csv_file.write(f"\n{model_name},{param_config_name},{c},{i},{val_metric[j]}")
-                        print(c,val_metric[j])    
+                if TEST:
+                    with open("./data/interim/test_results.csv", "a") as csv_file:
+                        for j,c in enumerate(CLASSES):
+                            csv_file.write(f"\n{model_name},{param_config_name},{c},{i},{val_metric[j]}")
+                            print(c,val_metric[j])
+                else:
+                    with open("./data/interim/valid_results.csv", "a") as csv_file:
+                        for j,c in enumerate(CLASSES):
+                            csv_file.write(f"\n{model_name},{param_config_name},{c},{i},{val_metric[j]}")
+                            print(c,val_metric[j])    
 
 if __name__ == '__main__':
     log_fmt = '%(asctime)s - %(name)s - %(levelname)s - %(message)s'
