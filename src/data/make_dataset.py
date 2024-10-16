@@ -7,7 +7,6 @@ from dotenv import find_dotenv, load_dotenv
 import pandas as pd
 import ast
 import glob
-import shutil
 import os
 import numpy as np
 import matplotlib.pyplot as plt
@@ -118,12 +117,11 @@ def create_images(input_filepath,output_filepath):
     for idx,i_name in enumerate(tqdm(image_names)):
         #Resize the image and save it in the processed folder
         if i_name in labels["ImageID"].unique():
-            if not sum(labels[labels["ImageID"]==i_name]["Onehot"].sum()) == 0:
-                img = np.expand_dims(io.imread(images_path[idx]),-1)
-                max_value = np.max(img) 
-                img = tf.image.resize_with_pad(img, 512, 512)
-                img = img/max_value
-                tf.keras.utils.save_img(f"./{output_filepath}/images/{i_name}", img, scale=True, data_format="channels_last")        
+            img = np.expand_dims(io.imread(images_path[idx]),-1)
+            max_value = np.max(img) 
+            img = tf.image.resize_with_pad(img, 512, 512)
+            img = img/max_value
+            tf.keras.utils.save_img(f"./{output_filepath}/images/{i_name}", img, scale=True, data_format="channels_last")        
         
 def rle2mask(mask_rle: str, label=1, shape=(3520,4280)):
     """
@@ -159,42 +157,20 @@ def decode_both_lungs(row, label=1):
     return right + left
 
 def create_rois(output_filepath):
-    # device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
-    # #Load lungs segmentation model
-    # lung_segmentation_model = Unet(1,1,light=False)
-    # lung_segmentation_model.load_state_dict(torch.load("./models/UnetBig.pt"))
-    # lung_segmentation_model.to(device)
-    # lung_segmentation_model.eval()
-    
-    # #Apply segmentation on files created during create_images function
-    # for img_path in tqdm(glob.glob(f"./{output_filepath}/images/*")):
-    #     #Load image and resize to match segmentation model input
-    #     img = plt.imread(img_path)
-        
-    #     #Transform into tensor
-    #     img_tensor = torch.from_numpy(img).float()
-    #     img_tensor = img_tensor.unsqueeze(0).unsqueeze(0)
-    #     img_tensor = img_tensor.to(device)
-        
-    #     #Apply model on image and get mask
-    #     outs = lung_segmentation_model(img_tensor)
-    #     pred = torch.sigmoid(outs) >= 0.5
-    #     seg_map = pred.cpu()[0][0].numpy().astype(np.uint8)
-        
-    #     #Convert Tensor to image and save
-    #     Image.fromarray(seg_map).save(f"./{output_filepath}/rois/{img_path.split('/')[-1]}")
-
     masks_df = pd.read_csv(f"./{output_filepath}/Padchest.csv")
     images_present = [img_path.split('/')[-1] for img_path in glob.glob(f"./{output_filepath}/images/*")]
     mask_present = []
     for idx,row in tqdm(masks_df.dropna().iterrows()):
         if row['ImageID'] not in images_present:
             continue
+        
+        #Following cheXmask guidelines, removing masks with a Dice RCA <= 0.7 (see Usage Notes at https://physionet.org/content/chexmask-cxr-segmentation-data/0.4/)
+        if row['Dice RCA (Mean)'] <= 0.7:
+            continue
+
         mask = np.expand_dims(decode_both_lungs(row),-1)
         mask_resize = tf.image.resize_with_pad(mask, 512, 512)
         mask_resize = mask_resize > 0
-        # mask_img = Image.fromarray(mask_resize)
-        # mask_img.save(f"./{output_filepath}/rois/{row['ImageID']}")
         tf.keras.utils.save_img(f"./{output_filepath}/rois/{row['ImageID']}", mask_resize, scale=True, data_format="channels_last")        
 
         mask_present.append(row['ImageID'])

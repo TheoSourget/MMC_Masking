@@ -1,5 +1,3 @@
-from operator import index
-import click
 import logging
 from pathlib import Path
 from dotenv import find_dotenv, load_dotenv
@@ -12,16 +10,18 @@ from carbontracker.tracker import CarbonTracker
 
 import torch
 import torch.optim as optim
-from torchvision.models import resnet50,densenet121
 from torchvision.transforms import v2
 from torch.nn.functional import sigmoid
-from sklearn.metrics import roc_auc_score,f1_score
+from sklearn.metrics import roc_auc_score
 
 from torch.utils.tensorboard import SummaryWriter
 
 from torch.utils.data import DataLoader
-from sklearn.model_selection import GroupShuffleSplit, GroupKFold
+from sklearn.model_selection import GroupKFold
 from src.data.pytorch_dataset import MaskingDataset
+from src.models.utils import get_model
+from src.data.utils import get_splits
+
 
 torch.manual_seed(1907)
 DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -100,23 +100,13 @@ def main():
     inverse_roi = False
     bounding_box = True
 
-    base_run_name = f'runs/{datetime.now().strftime("%b_%d_%Y_%H%M%S")}'
+    base_run_name = f'runs/{datetime.now().strftime("%b_%d_%Y_%H%M%S")}'    
 
-    #Load the base dataset
-    training_data = MaskingDataset(data_dir="./data/processed")
-    testing_data = MaskingDataset(data_dir="./data/processed")
-
-    #Split the dataset into training/testing splits
-    splitter = GroupShuffleSplit(test_size=0.2, n_splits=2, random_state = 1907)
-    train_eval_split = splitter.split(training_data.img_labels, groups=training_data.img_labels['PatientID'])
-    train_idx, test_idx = next(train_eval_split)
-    training_data.img_labels = training_data.img_labels.iloc[train_idx].reset_index(drop=True)
-    training_data.img_paths = np.array(training_data.img_paths)[train_idx]
-    training_data.roi_paths = np.array(training_data.roi_paths)[train_idx]
-
-    testing_data.img_labels = testing_data.img_labels.iloc[test_idx].reset_index(drop=True)
-    testing_data.img_paths = np.array(testing_data.img_paths)[test_idx]
-    testing_data.roi_paths = np.array(testing_data.roi_paths)[test_idx]
+    #get data splits 
+    training_data, testing_data = get_splits(NB_FOLDS)
+    
+    #Create k-fold for train/val
+    group_kfold = GroupKFold(n_splits=NB_FOLDS)
     
     #Define data augmentation
     transforms = v2.Compose([
@@ -125,9 +115,6 @@ def main():
         v2.ColorJitter(brightness=(0.7,1.1))
     ])
 
-    #Create k-fold for train/val
-    group_kfold = GroupKFold(n_splits=NB_FOLDS)
-    
     for i, (train_index,val_index) in enumerate(group_kfold.split(training_data.img_labels, groups= training_data.img_labels['PatientID'])):
         writer = SummaryWriter(f'{base_run_name}/Fold{i}')
         train_data = MaskingDataset(data_dir="./data/processed",transform=transforms,masking_spread=masking_spread,inverse_roi=inverse_roi,bounding_box=bounding_box)
@@ -144,28 +131,9 @@ def main():
         valid_dataloader = DataLoader(val_data, batch_size=BATCH_SIZE)
         
         
-        #Compute class weights to counter data imbalenced
-        y = np.array(train_data.img_labels["Onehot"].tolist())
-        #Define model, loss and optimizer
-        model = densenet121(weights='DEFAULT')#Weights pretrained on imagenet_1k
-        
-        # Freeze every layer except last denseblock and classifier
-        for param in model.parameters():
-            param.requires_grad = False
-        for param in model.features.denseblock4.denselayer16.parameters():
-            param.requires_grad = True
-       
-        kernel_count = model.classifier.in_features
-        model.classifier = torch.nn.Sequential(
-         torch.nn.Flatten(),
-         torch.nn.Linear(kernel_count, len(CLASSES))
-        )
-        
-        model.to(DEVICE)
+        model = get_model(CLASSES)
         
         criterion = torch.nn.BCEWithLogitsLoss()
-        # weights = torch.as_tensor(np.sum(y==0,axis=0)/np.sum(y,axis=0),dtype=torch.float).to(DEVICE)
-        # criterion = torch.nn.BCEWithLogitsLoss(pos_weight=weights)
         criterion.requires_grad = True
         
         optimizer = optim.Adam(model.parameters(),lr=LEARNING_RATE)
