@@ -43,7 +43,7 @@ def get_model(classes,weights=None,inplace_relu=True,return_nodes=None):
         #Load weights after training 
         if weights:
             try:
-                model.load_state_dict(torch.load(f"./models/{weights["name"]}/{weights["name"]}_Fold{weights["fold"]}.pt"))
+                model.load_state_dict(torch.load(f"./models/{weights['name']}/{weights['name']}_Fold{weights['fold']}.pt"))
             except FileNotFoundError as e:
                 print("Error loading model")
                 return None

@@ -96,10 +96,10 @@ def main():
     ES_PATIENCE = int(os.environ.get("ES_PATIENCE"))
     ES_DELTA = float(os.environ.get("ES_DELTA"))
     
-    masking_spread = 0
-    inverse_roi = False
-    bounding_box = True
-
+    masking_spread = int(os.environ.get("MASKING_SPREAD"))
+    inverse_roi = (os.environ.get("INVERSE_ROI") == "True")
+    bounding_box = (os.environ.get("BOUNDING_BOX") == "True")
+    
     base_run_name = f'runs/{datetime.now().strftime("%b_%d_%Y_%H%M%S")}'    
 
     #get data splits 
