@@ -56,9 +56,6 @@ docs/_build/
 # PyBuilder
 target/
 
-# DotEnv configuration
-.env
-
 # Database
 *.db
 *.rdb
@@ -87,3 +84,8 @@ target/
 
 # Mypy cache
 .mypy_cache/
+
+#Temp ignore
+/reports/figures/shap
+**/events.*
+**.pt
