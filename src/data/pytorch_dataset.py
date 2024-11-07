@@ -61,3 +61,13 @@ class MaskingDataset(Dataset):
         if self.transform:
             image = self.transform(image)
         return torch.Tensor(image), torch.Tensor(label)
+    
+    def get_image_id(self,idx):
+        img_path = self.img_paths[idx]
+        roi_path = self.roi_paths[idx]
+        label = self.img_labels.iloc[idx]["Onehot"]
+        return img_path        
+
+    def get_image_by_id(self,id):
+        idx = np.where(np.array(self.img_paths)==id)[0][0]
+        return self.__getitem__(idx)
