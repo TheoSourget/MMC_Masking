@@ -117,12 +117,15 @@ def main():
                 imgs_to_save = df_positives.iloc[[idx_25,idx_50,idx_75]][["imageID","probas"]]
                 imgs_to_save["labels"]=CLASSES[i]
                 imgs_to_save["masking"]=model_name
+                lst_all_labels_to_save = []
                 for img_path in imgs_to_save["imageID"]:
                     img, label = valid_dataloader.dataset.get_image_by_id(img_path)
+                    lst_all_labels_to_save.append(label.cpu().detach().numpy())
                     img_name = f"{img_path.split('/')[-1].removesuffix('.png')}_{model_name}.png"
                     lst_img_names.append(img_name)
                     save_image(img, f"./data/interim/selected_images_test/{img_name}")
                 imgs_to_save["imageID"] = lst_img_names
+                imgs_to_save["all_labels"] = lst_all_labels_to_save
                 imgs_to_save.to_csv("./data/interim/selected_images_test/selected_images.csv",mode='a',header=not os.path.exists("./data/interim/selected_images_test/selected_images.csv"))
 
 
