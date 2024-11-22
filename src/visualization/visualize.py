@@ -38,6 +38,8 @@ def generate_auc_per_label(path_to_results="./data/interim/valid_results.csv",sh
         heatmap.xaxis.set_tick_params(labelsize = 15)
         plt.xlabel('Validation set masking', fontsize=13)
         plt.ylabel('Training set masking', fontsize=13)
+        cbar = heatmap.collections[0].colorbar
+        cbar.ax.tick_params(labelsize=15)
         plt.tight_layout()
         plt.savefig(f"./reports/figures/mean_auc_{class_label}.png",format='png')
         if show:
@@ -140,6 +142,20 @@ def get_embedding(model_name,valid_params):
             break
     return models_flatten_output, labels_dataset
 
+def scatter_hist(x, y, ax, ax_histx, ax_histy,label,visualisation_param):
+    # no labels
+    ax_histx.tick_params(axis="x", labelbottom=False)
+    ax_histy.tick_params(axis="y", labelleft=False)
+
+    # the scatter plot:
+    ax.scatter(x, y,alpha=0.5,label=label,**visualisation_param)
+
+    bins = np.arange(0, 1, 0.05)
+    ax_histx.hist(x, bins=bins, color=visualisation_param["c"], alpha = 0.5)
+    ax_histy.hist(y, bins=bins, color=visualisation_param["c"], alpha = 0.5, orientation='horizontal')
+    
+    ax_histx.axis('off')
+    ax_histy.axis('off')
 
 def plot_tsne(show=False):
     model_name="NormalDataset"
@@ -152,6 +168,13 @@ def plot_tsne(show=False):
         "OnlyLungBB":{"masking_spread":0,"inverse_roi":True,"bounding_box":True},
     }
     
+    visualisation_param = {
+        "Full":{"c":"tab:blue","marker":"o"},
+        "NoLung":{"c":"tab:orange","marker":"^"},
+        "NoLungBB":{"c":"tab:green","marker":"s"},
+        "OnlyLung":{"c":"purple","marker":"*"},
+        "OnlyLungBB":{"c":"red","marker":"X"}
+    }
     
     models_embeddings,labels_dataset = get_embedding(model_name,valid_params)
     
@@ -188,15 +211,24 @@ def plot_tsne(show=False):
 
 
     #Plot divided by masking strategy
-    plt.figure()
+    fig = plt.figure()
+    gs = fig.add_gridspec(2, 2,  width_ratios=(4, 1), height_ratios=(1, 4),
+                      left=0.1, right=0.9, bottom=0.1, top=0.9,
+                      wspace=0.05, hspace=0.05)
+    ax = fig.add_subplot(gs[1, 0])
+    ax_histx = fig.add_subplot(gs[0, 0], sharex=ax)
+    ax_histy = fig.add_subplot(gs[1, 1], sharey=ax)
+    
+    
     for masking_param in valid_params:
         indices = [j for j, l in enumerate(labels_masking) if l == masking_param]
         # extract the coordinates of the points of the current masking
         current_tx = np.take(tx, indices)
         current_ty = np.take(ty, indices)
-        plt.scatter(current_tx,current_ty,label=masking_param,alpha=0.5)
-    plt.title(f"t-SNE of the embeddings before classication head of images with different masking strategy",size=15)
-    plt.legend(bbox_to_anchor=(1,1),fontsize=15)
+        scatter_hist(current_tx, current_ty, ax, ax_histx, ax_histy,masking_param,visualisation_param[masking_param])
+        # plt.scatter(current_tx,current_ty,label=masking_param,alpha=0.5,**visualisation_param[masking_param])
+    
+    ax.legend(bbox_to_anchor=(2,1),fontsize=15)
     plt.savefig(f"./reports/figures/tsne.png",format='png',bbox_inches='tight')
     if show:
         plt.show()
