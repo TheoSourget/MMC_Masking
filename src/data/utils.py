@@ -6,10 +6,10 @@ from sklearn.model_selection import GroupShuffleSplit
 
 torch.manual_seed(1907)
 
-def get_splits(nb_folds):
+def get_splits(nb_folds,data_dir="./data/processed"):
     #Load the base dataset
-    training_data = MaskingDataset(data_dir="./data/processed")
-    testing_data = MaskingDataset(data_dir="./data/processed")
+    training_data = MaskingDataset(data_dir=data_dir)
+    testing_data = MaskingDataset(data_dir=data_dir)
 
     #Split the dataset into training/testing splits
     splitter = GroupShuffleSplit(test_size=0.2, n_splits=2, random_state = 1907)

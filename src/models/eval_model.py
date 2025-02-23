@@ -45,7 +45,7 @@ def valid_epoch(model,valid_dataloader):
             probas = lst_probas[:,i]
             auc_score=roc_auc_score(labels,probas)
             auc_scores.append(auc_score)
-    return auc_scores
+    return auc_scores,lst_labels,lst_probas
 
 def main():
     #Get hyperparameters 
@@ -131,13 +131,23 @@ def main():
                     print("No model saved for fold",i)
                     continue
 
-                val_metric = valid_epoch(model,valid_dataloader)
+                val_metric,lst_labels,lst_probas = valid_epoch(model,valid_dataloader)
                 if TEST:
+                    with open(f"./data/interim/test_probas_{model_name}_Fold{i}_{param_config_name}.csv", "a") as csv_file:
+                        csv_file.write(f"label,proba")
+                        for label,proba in zip(lst_labels,lst_probas):
+                            csv_file.write(f"\n{label},{proba}")
+
                     with open("./data/interim/test_results.csv", "a") as csv_file:
                         for j,c in enumerate(CLASSES):
                             csv_file.write(f"\n{model_name},{param_config_name},{c},{i},{val_metric[j]}")
                             print(c,val_metric[j])
                 else:
+                    with open(f"./data/interim/valid_probas_{model_name}_Fold{i}_{param_config_name}.csv", "a") as csv_file:
+                        csv_file.write(f"label,proba")
+                        for label,proba in zip(lst_labels,lst_probas):
+                            csv_file.write(f"\n{label},{proba}")
+                            
                     with open("./data/interim/valid_results.csv", "a") as csv_file:
                         for j,c in enumerate(CLASSES):
                             csv_file.write(f"\n{model_name},{param_config_name},{c},{i},{val_metric[j]}")
