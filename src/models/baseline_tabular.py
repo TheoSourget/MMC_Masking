@@ -36,6 +36,11 @@ def main():
         val_data.img_paths = np.array(training_data.img_paths)[val_index]
         val_data.roi_paths = np.array(training_data.roi_paths)[val_index]
 
+        #Drop rows with nan values for the features of interest
+        train_data.img_labels = train_data.img_labels.dropna(subset=["PatientBirth","PatientSex_DICOM","Projection"])
+        val_data.img_labels = val_data.img_labels.dropna(subset=["PatientBirth","PatientSex_DICOM","Projection"])
+        testing_data.img_labels = testing_data.img_labels.dropna(subset=["PatientBirth","PatientSex_DICOM","Projection"])
+
         #get min and max year of train data to normalize birth feature
         min_year = train_data.img_labels["PatientBirth"].min()
         max_year = train_data.img_labels["PatientBirth"].max()
