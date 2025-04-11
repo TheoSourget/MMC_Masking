@@ -13,6 +13,7 @@ from torch.nn.functional import sigmoid
 
 from torch.utils.data import DataLoader
 from sklearn.model_selection import GroupKFold
+from sklearn.metrics import roc_auc_score
 from src.data.pytorch_dataset import MaskingDataset
 from src.models.utils import get_model,make_single_pred
 from src.data.utils import get_splits
@@ -20,11 +21,12 @@ from src.data.utils import get_splits
 import shap
 from scipy.spatial.distance import cosine
 from sklearn.manifold import TSNE
+import copy
 
 DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 
-def generate_auc_per_label(path_to_results="./data/interim/valid_results.csv",show=False):
+def generate_auc_per_label(path_to_results="./data/interim/valid_results.csv",base_img_name="mean_auc",show=False):
     models_valid_results = pd.read_csv(path_to_results)
     mean_auc_per_class = models_valid_results.groupby(["class","training_set","valid_set"])["auc"].mean()
     for class_label in mean_auc_per_class.index.get_level_values('class').unique():
@@ -33,15 +35,15 @@ def generate_auc_per_label(path_to_results="./data/interim/valid_results.csv",sh
         result_class = result_class[["NoLungBB","NoLung","Normal","OnlyLungBB","OnlyLung"]]
         plt.figure(figsize=(9,7))
         plt.title(class_label,size=20)
-        heatmap = sns.heatmap(result_class, annot=True,cmap="RdYlGn",annot_kws={"size": 15},xticklabels=["NoLungBB","NoLung","Full","OnlyLungBB","OnlyLung"],yticklabels=["NoLungBB","NoLung","Full","OnlyLungBB","OnlyLung"])
-        heatmap.yaxis.set_tick_params(labelsize = 15)
-        heatmap.xaxis.set_tick_params(labelsize = 15)
-        plt.xlabel('Validation set masking', fontsize=13)
-        plt.ylabel('Training set masking', fontsize=13)
+        heatmap = sns.heatmap(result_class, annot=True,cmap="RdYlGn",annot_kws={"size": 15},xticklabels=["NoLungsBB","NoLungs","Full","OnlyLungsBB","OnlyLungs"],yticklabels=["NoLungsBB","NoLungs","Full","OnlyLungsBB","OnlyLungs"])
+        heatmap.yaxis.set_tick_params(labelsize = 14,rotation=45)
+        heatmap.xaxis.set_tick_params(labelsize = 14)
+        plt.xlabel('Test set masking', fontsize=16)
+        plt.ylabel('Training set masking', fontsize=16)
         cbar = heatmap.collections[0].colorbar
         cbar.ax.tick_params(labelsize=15)
         plt.tight_layout()
-        plt.savefig(f"./reports/figures/mean_auc_{class_label}.png",format='png')
+        plt.savefig(f"./reports/figures/{base_img_name}_{class_label}.png",format='png')
         if show:
             plt.show()
 
@@ -299,20 +301,128 @@ def get_cosine():
                 {np.mean(no_lungbb_similarities)}+/-{np.std(no_lungbb_similarities)},\
                 {np.mean(only_lung_similarities)}+/-{np.std(only_lung_similarities)},\
                 {np.mean(only_lungbb_similarities)}+/-{np.std(only_lungbb_similarities)}")
+
+
+def dilation_impact_auc(model_name,masking_param,dilation_factors):
+    """
+    Apply validation set and compute AUC for images of the validation sets with increasing dilation factor
+    @param:
+        -model_name: name of the weights to load
+        -masking_param: dict with the masking parameters {"inverse_roi":False,"bounding_box":False}
+        -dilation_factors: list of the dilation factors (masking spread) to apply
+    @return:
+        -The list of AUCs for each dilation factors
+    """
+    NB_FOLDS = int(os.environ.get("NB_FOLDS"))
+    BATCH_SIZE = 1
+    CLASSES = os.environ.get("CLASSES").split(",")
+    
+    #Load the base dataset
+    training_data,testing_data = get_splits(NB_FOLDS)
+    
+
+    #Create k-fold for train/val
+    group_kfold = GroupKFold(n_splits=NB_FOLDS)
+
+    lst_auc = [[] for i in range(len(dilation_factors))]
+
+    for k,dilation_factor in enumerate(dilation_factors):
+        print("\nDilation factor",k)
+        for i, (train_index,val_index) in enumerate(group_kfold.split(training_data.img_labels, groups= training_data.img_labels['PatientID'])):
+            test_dataloader = DataLoader(testing_data, batch_size=BATCH_SIZE)
+
+            #Define model
+            weights = {
+                "name":model_name,
+                "fold":i
+            }
+            model = get_model(CLASSES,weights)
+            model.eval()
         
+            lst_labels = []
+            lst_probas = []
+            auc_scores = []
+            test_dataloader.dataset.masking_spread = dilation_factor
+            test_dataloader.dataset.inverse_roi = masking_param["inverse_roi"]
+            test_dataloader.dataset.bounding_box = masking_param["bounding_box"]
+            
+            with torch.no_grad():
+                for j,data in enumerate(test_dataloader):
+                    inputs,labels = data
+                    inputs,labels = inputs.float().to(DEVICE), torch.Tensor(np.array(labels)).float().to(DEVICE)
+                    outputs = model(inputs)
+                    output_sigmoid = sigmoid(outputs)
+                    lst_labels.extend(labels.cpu().detach().numpy())
+                    lst_probas.extend(output_sigmoid.cpu().detach().numpy())
+                
+                lst_labels = np.array(lst_labels)
+                lst_probas = np.array(lst_probas)
+                for j in range(lst_labels.shape[1]):
+                    labels = lst_labels[:,j]
+                    probas = lst_probas[:,j]
+                    auc_score=roc_auc_score(labels,probas)
+                    auc_scores.append(auc_score)
+                
+                lst_auc[k].append(auc_scores)
+    return lst_auc
+
+def plot_impact_auc(model_name,masking_param,savefile_name,show=False):
+    """
+    @param:
+        -model_name: name of the weights to load
+        -masking_param: dict with the masking parameters (ex: {"inverse_roi":False,"bounding_box":False})
+        -savefile_name: Name of the file used to save the plot
+        -show: bool, default False. Save and show the plot if True, only save it otherwise
+    """
+    CLASSES = os.environ.get("CLASSES").split(",")
+    dilation_factors = [0,5,10,25,50,100,150,200,300,400,500]
+
+    lst_auc_all_disease_dilation = dilation_impact_auc(model_name,masking_param,dilation_factors)
+    
+    plt.figure()
+    for c in range(len(CLASSES)):
+        lst_auc_disease_dilation = np.array(lst_auc_all_disease_dilation)[:,:,c]
+        mean_auc_disease = np.array([np.mean(lst_auc_disease_dilation[k]) for k in range(len(lst_auc_disease_dilation))])
+        std_auc_disease = np.array([np.std(lst_auc_disease_dilation[k]) for k in range(len(lst_auc_disease_dilation))])
+        plt.plot(dilation_factors,mean_auc_disease,marker="o",label=CLASSES[c])
+        plt.fill_between(dilation_factors, mean_auc_disease-std_auc_disease, mean_auc_disease+std_auc_disease,alpha=0.2)
+
+
+    plt.title("Evolution of AUC while expanding mask's size")
+    plt.xlabel("Dilation factor")
+    plt.ylabel("Mean AUC across 5-fold")
+    plt.legend()
+
+    plt.savefig(f"./reports/figures/{savefile_name}.png",bbox_inches='tight')
+    if show:
+        plt.show()        
 
 def main():
-    print("GENERATING AUC MATRICES")
-    generate_auc_per_label("./data/interim/valid_results.csv")
+    # print("GENERATING AUC MATRICES")
+    # generate_auc_per_label("./data/interim/test_results.csv","test_mean_auc")
     
-    print("\nCOMPUTING COSINE SIMILARITIES")
-    get_cosine()
+    # print("\nCOMPUTING COSINE SIMILARITIES")
+    # get_cosine()
     
-    print("\nCREATING t-SNE PLOT")
-    plot_tsne()
+    # print("\nCREATING t-SNE PLOT")
+    # plot_tsne()
 
-    # print("\nGENERATING EXPLAINABILITY MAPS")
-    # generate_explainability_map()
+    # # print("\nGENERATING EXPLAINABILITY MAPS")
+    # # generate_explainability_map()
+
+    
+    print("Dilation impact")
+    #Impact of dilation for the model trained on Full images and evaluated on images with only the lungs
+    #Increasing the dilation factor will INCREASE the proportion of visible pixels in the image
+    masking_param = {"inverse_roi":True,"bounding_box":False}
+    plot_impact_auc("NormalDataset",masking_param,"auc_dilation_OnlyLungs",False)
+
+
+    #Impact of dilation for the model trained on Full images and evaluated on images without the lungs
+    #Increasing the dilation factor will DECREASE the proportion of visible pixels in the image
+    masking_param = {"inverse_roi":False,"bounding_box":False}
+    plot_impact_auc("NormalDataset",masking_param,"auc_dilation_NoLungs",False)
+
 
 if __name__ == '__main__':
     log_fmt = '%(asctime)s - %(name)s - %(levelname)s - %(message)s'
